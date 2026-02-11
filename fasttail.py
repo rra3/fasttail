@@ -144,7 +144,7 @@ def run_oneshot(token, n, use_color, no_pager):
         pager.communicate(input=output.encode())
 
 
-def run_daemon(token, logfile, interval, backfill=0):
+def run_daemon(token, logfile, interval, backfill=0, use_color=False):
     print(f"Starting daemon, polling every {interval}s, logging to {logfile}",
           file=sys.stderr)
 
@@ -168,9 +168,10 @@ def run_daemon(token, logfile, interval, backfill=0):
             backfill_emails = sorted(emails[:backfill],
                                      key=lambda e: e["receivedAt"])
             for email in backfill_emails:
-                f.write(format_email(email, mailboxes))
+                f.write(format_email(email, mailboxes, use_color))
 
         f.flush()
+
 
         while True:
             time.sleep(interval)
@@ -185,7 +186,7 @@ def run_daemon(token, logfile, interval, backfill=0):
                     new_emails.sort(key=lambda e: e["receivedAt"])
                     for email in new_emails:
                         seen_ids.add(email["id"])
-                        f.write(format_email(email, mailboxes))
+                        f.write(format_email(email, mailboxes, use_color))
                     f.flush()
 
                 last_check = datetime.now(timezone.utc).strftime(
@@ -240,17 +241,18 @@ def main():
         print("Error: FASTMAIL_TOKEN environment variable not set", file=sys.stderr)
         sys.exit(1)
 
+    if args.color == "always":
+        use_color = True
+    elif args.color == "never":
+        use_color = False
+    else:
+        use_color = sys.stdout.isatty()
+
     if args.daemon:
         signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-        run_daemon(token, args.logfile, args.interval, args.backfill)
+        run_daemon(token, args.logfile, args.interval, args.backfill, use_color)
     else:
-        if args.color == "always":
-            use_color = True
-        elif args.color == "never":
-            use_color = False
-        else:
-            use_color = sys.stdout.isatty()
         run_oneshot(token, args.n, use_color, args.no_pager)
 
 
