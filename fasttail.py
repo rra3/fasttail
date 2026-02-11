@@ -191,6 +191,16 @@ def run_daemon(token, logfile, interval, backfill=0):
                 last_check = datetime.now(timezone.utc).strftime(
                     "%Y-%m-%dT%H:%M:%SZ"
                 )
+            except requests.exceptions.HTTPError as e:
+                if e.response is not None and e.response.status_code in (401, 403):
+                    print("Session expired, refreshing...", file=sys.stderr)
+                    try:
+                        api_url, account_id, headers = get_api_info(token)
+                        mailboxes = fetch_mailboxes(api_url, account_id, headers)
+                    except Exception as re:
+                        print(f"Session refresh failed: {re}", file=sys.stderr)
+                else:
+                    print(f"Poll error: {e}", file=sys.stderr)
             except Exception as e:
                 print(f"Poll error: {e}", file=sys.stderr)
 
