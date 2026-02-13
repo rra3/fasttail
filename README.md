@@ -100,8 +100,9 @@ python3 top_senders.py --load emails.json --sender hello@pacas.us  # drill down 
 Find and execute the unsubscribe mechanism for a given sender.
 
 ```bash
-python3 unsubscribe.py hello@pacas.us           # unsubscribe
-python3 unsubscribe.py --dry-run hello@pacas.us  # just show what it would do
+python3 unsubscribe.py hello@pacas.us                        # unsubscribe
+python3 unsubscribe.py --dry-run hello@pacas.us               # just show what it would do
+python3 unsubscribe.py hello@pacas.us --to myalias@fastmail.com  # match by recipient
 ```
 
 Tries three strategies in priority order:

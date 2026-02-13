@@ -41,8 +41,14 @@ def get_api_info(token):
     return api_url, account_id, headers
 
 
-def fetch_sample_email(api_url, account_id, headers, sender):
+def fetch_sample_email(api_url, account_id, headers, sender, recipient=None):
     """Fetch a recent email from sender with headers and HTML body."""
+    email_filter = {"from": sender}
+    if recipient:
+        email_filter = {"operator": "AND", "conditions": [
+            {"from": sender},
+            {"to": recipient},
+        ]}
     body = {
         "using": JMAP_USING,
         "methodCalls": [
@@ -50,7 +56,7 @@ def fetch_sample_email(api_url, account_id, headers, sender):
                 "Email/query",
                 {
                     "accountId": account_id,
-                    "filter": {"from": sender},
+                    "filter": email_filter,
                     "sort": [{"property": "receivedAt", "isAscending": False}],
                     "limit": 1,
                 },
@@ -278,11 +284,14 @@ def attempt_get_unsubscribe(url):
         return "error", str(e)
 
 
-def run(token, sender, dry_run=False):
+def run(token, sender, dry_run=False, recipient=None):
     api_url, account_id, headers = get_api_info(token)
 
-    print(f"Looking for email from: {sender}")
-    email = fetch_sample_email(api_url, account_id, headers, sender)
+    if recipient:
+        print(f"Looking for email from: {sender} to: {recipient}")
+    else:
+        print(f"Looking for email from: {sender}")
+    email = fetch_sample_email(api_url, account_id, headers, sender, recipient=recipient)
     if not email:
         print(f"No emails found from {sender}", file=sys.stderr)
         return False
@@ -352,6 +361,10 @@ def main():
     )
     parser.add_argument("sender", help="Email address to unsubscribe from")
     parser.add_argument(
+        "--to", dest="recipient", default=None,
+        help="Only match emails sent to this recipient address"
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="Find the unsubscribe link but don't click it"
     )
@@ -362,7 +375,7 @@ def main():
         print("Error: FASTMAIL_TOKEN environment variable not set", file=sys.stderr)
         sys.exit(1)
 
-    ok = run(token, args.sender, dry_run=args.dry_run)
+    ok = run(token, args.sender, dry_run=args.dry_run, recipient=args.recipient)
     sys.exit(0 if ok else 1)
 
 
