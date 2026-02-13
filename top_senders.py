@@ -2,6 +2,7 @@
 """Show top email senders from Fastmail across all mailboxes."""
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -27,12 +28,16 @@ def get_api_info(token):
     return api_url, account_id, headers
 
 
-def fetch_sender_batch(api_url, account_id, headers, after, position,
-                       calculate_total=False):
-    """Fetch a batch of email sender addresses starting at position."""
+def fetch_email_batch(api_url, account_id, headers, after, position,
+                      properties, extra_filter=None, calculate_total=False):
+    """Fetch a batch of emails starting at position."""
+    filt = {"after": after}
+    if extra_filter:
+        filt.update(extra_filter)
+
     query_params = {
         "accountId": account_id,
-        "filter": {"after": after},
+        "filter": filt,
         "sort": [{"property": "receivedAt", "isAscending": False}],
         "position": position,
         "limit": BATCH_SIZE,
@@ -53,7 +58,7 @@ def fetch_sender_batch(api_url, account_id, headers, after, position,
                         "name": "Email/query",
                         "path": "/ids/*",
                     },
-                    "properties": ["from"],
+                    "properties": properties,
                 },
                 "1",
             ],
@@ -74,9 +79,15 @@ def fetch_sender_batch(api_url, account_id, headers, after, position,
     return emails, total
 
 
-def collect_senders(token, api_url, account_id, headers, after):
-    """Paginate through all emails since `after` and count senders."""
-    counts = Counter()
+def extract_addr(email, field):
+    """Extract the first email address from a header field."""
+    addrs = email.get(field) or [{}]
+    return addrs[0].get("email", "unknown").lower()
+
+
+def collect_emails(token, api_url, account_id, headers, after):
+    """Paginate through all emails since `after` and return (from, to) pairs."""
+    records = []
     position = 0
     total = None
     retries = 0
@@ -84,9 +95,9 @@ def collect_senders(token, api_url, account_id, headers, after):
     while True:
         try:
             need_total = total is None
-            emails, batch_total = fetch_sender_batch(
+            emails, batch_total = fetch_email_batch(
                 api_url, account_id, headers, after, position,
-                calculate_total=need_total,
+                ["from", "to"], calculate_total=need_total,
             )
             retries = 0  # reset on success
 
@@ -97,9 +108,10 @@ def collect_senders(token, api_url, account_id, headers, after):
                 break
 
             for email in emails:
-                frm = email.get("from") or [{}]
-                addr = frm[0].get("email", "unknown").lower()
-                counts[addr] += 1
+                records.append({
+                    "from": extract_addr(email, "from"),
+                    "to": extract_addr(email, "to"),
+                })
 
             position += len(emails)
             total_str = str(total) if total else "?"
@@ -137,7 +149,7 @@ def collect_senders(token, api_url, account_id, headers, after):
                 raise
 
     print(file=sys.stderr)
-    return counts, position
+    return records
 
 
 def main():
@@ -149,20 +161,53 @@ def main():
         "--months", type=int, default=6,
         help="How many months back to look (default: 6)"
     )
+    parser.add_argument(
+        "--sender", type=str, default=None,
+        help="Drill into a specific sender to see which of your addresses they send to"
+    )
+    parser.add_argument(
+        "--save", type=str, default=None, metavar="FILE",
+        help="Save fetched email data to a JSON file for later reuse"
+    )
+    parser.add_argument(
+        "--load", type=str, default=None, metavar="FILE",
+        help="Load previously saved email data instead of fetching from API"
+    )
     args = parser.parse_args()
 
-    token = os.environ.get("FASTMAIL_TOKEN")
-    if not token:
-        print("Error: FASTMAIL_TOKEN environment variable not set", file=sys.stderr)
-        sys.exit(1)
+    if args.load:
+        print(f"Loading emails from {args.load}...", file=sys.stderr)
+        with open(args.load) as f:
+            records = json.load(f)
+        print(f"  loaded {len(records)} emails", file=sys.stderr)
+    else:
+        token = os.environ.get("FASTMAIL_TOKEN")
+        if not token:
+            print("Error: FASTMAIL_TOKEN environment variable not set", file=sys.stderr)
+            sys.exit(1)
 
-    since = datetime.now(timezone.utc) - timedelta(days=args.months * 30)
-    after = since.strftime("%Y-%m-%dT%H:%M:%SZ")
+        since = datetime.now(timezone.utc) - timedelta(days=args.months * 30)
+        after = since.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    print(f"Fetching emails since {since.strftime('%Y-%m-%d')}...", file=sys.stderr)
+        print(f"Fetching emails since {since.strftime('%Y-%m-%d')}...", file=sys.stderr)
 
-    api_url, account_id, headers = get_api_info(token)
-    counts, total = collect_senders(token, api_url, account_id, headers, after)
+        api_url, account_id, headers = get_api_info(token)
+        records = collect_emails(token, api_url, account_id, headers, after)
+
+        if args.save:
+            with open(args.save, "w") as f:
+                json.dump(records, f)
+            print(f"  saved {len(records)} emails to {args.save}", file=sys.stderr)
+
+    if args.sender:
+        filtered = [r for r in records if r["from"] == args.sender.lower()]
+        counts = Counter(r["to"] for r in filtered)
+        total = len(filtered)
+        label = "recipient addresses"
+    else:
+        counts = Counter(r["from"] for r in records)
+        total = len(records)
+        label = "unique senders"
 
     top = counts.most_common(args.n)
     if not top:
@@ -175,7 +220,7 @@ def main():
     for i, (addr, count) in enumerate(top, 1):
         print(f"  {i:>{rank_width}}. {count:>{count_width}}  {addr}")
 
-    print(f"\n  {len(counts)} unique senders, {total} emails total", file=sys.stderr)
+    print(f"\n  {len(counts)} {label}, {total} emails total", file=sys.stderr)
 
 
 if __name__ == "__main__":

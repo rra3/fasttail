@@ -77,6 +77,24 @@ Output:
   ...
 ```
 
+#### Drill into a sender
+
+See which of your addresses a specific sender is writing to (useful with multiple aliases):
+
+```bash
+python3 top_senders.py --sender hello@pacas.us
+```
+
+#### Save and reload data
+
+Fetch once and save to avoid repeated API calls, then reuse for drill-downs:
+
+```bash
+python3 top_senders.py --save emails.json              # fetch and save
+python3 top_senders.py --load emails.json               # top senders from saved data
+python3 top_senders.py --load emails.json --sender hello@pacas.us  # drill down offline
+```
+
 ### unsubscribe — unsubscribe from a sender
 
 Find and execute the unsubscribe mechanism for a given sender.
